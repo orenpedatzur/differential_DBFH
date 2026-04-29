@@ -1,0 +1,238 @@
+function out = diff_DBFH(I_full, C, cs_E, cs_dE, varargin)
+%DIFF_DBFH Differential DBFH using forward-model LSQR.
+%
+% Solves:
+%   C.*X - sqrt(I).*deltaA = 0
+%   E(outside cs_E) = 0
+%
+% with
+%   A      = sqrt(I).*X
+%   E      = ifft2c(A)
+%   deltaE = m.*E,   m = cs_dE
+%   deltaA = fft2c(deltaE)
+%
+% Since the note gives a homogeneous system, one anchor row is required
+% for LSQR to avoid the trivial solution:
+%   X(anchor_idx) = 1
+%
+% Inputs
+% ------
+% I_full : Ny x Nx real
+% C      : Ny x Nx complex
+% cs_E   : Ny x Nx logical
+% cs_dE  : Ny x Nx logical   (used as perturbation mask m)
+%
+% Name-value
+% ----------
+% 'LambdaCS'   : weight on CS block               (default 1)
+% 'LambdaRef'  : weight on anchor row             (default 1)
+% 'AnchorIndex': linear index of X to pin         (default brightest pixel)
+% 'LSQRTol'    : lsqr tolerance                   (default 1e-8)
+% 'LSQRMaxIter': lsqr max iterations              (default 500)
+% 'X0'         : initial guess                    (default ones)
+% 'Verbose'    : true/false                       (default true)
+
+p = inputParser;
+p.addParameter('LambdaCS', 1, @(x) isnumeric(x) && isscalar(x) && x >= 0);
+p.addParameter('LambdaRef', 1, @(x) isnumeric(x) && isscalar(x) && x >= 0);
+p.addParameter('AnchorIndex', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x) && x>=1));
+p.addParameter('LSQRTol', 1e-8, @(x) isnumeric(x) && isscalar(x) && x > 0);
+p.addParameter('LSQRMaxIter', 1e3, @(x) isnumeric(x) && isscalar(x) && x >= 1);
+p.addParameter('X0', [], @(x) isnumeric(x));
+p.addParameter('Verbose', true, @(x) islogical(x) && isscalar(x));
+p.addParameter('ShowPlots', true, @(x) islogical(x) && isscalar(x));
+p.addParameter('Debug_X_true',nan(size(I_full)));
+p.parse(varargin{:});
+
+lambdaCS   = p.Results.LambdaCS;
+lambdaRef  = p.Results.LambdaRef;
+anchor_idx = p.Results.AnchorIndex;
+lsqrTol    = p.Results.LSQRTol;
+lsqrMaxIter= p.Results.LSQRMaxIter;
+X0         = p.Results.X0;
+verbose    = p.Results.Verbose;
+show_plots    = p.Results.ShowPlots;
+X_true = p.Results.Debug_X_true;
+
+I_full = double(I_full);
+C      = double(C);
+cs_E   = logical(cs_E);
+cs_dE  = logical(cs_dE);
+
+[Ny, Nx] = size(I_full);
+N = Ny * Nx;
+
+if ~isequal(size(C), [Ny, Nx]) || ~isequal(size(cs_E), [Ny, Nx]) || ~isequal(size(cs_dE), [Ny, Nx])
+    error('I_full, C, cs_E, and cs_dE must all have identical size.');
+end
+
+sqrtI = sqrt(max(I_full, 0));
+m = double(cs_dE);
+mask_out_E = ~cs_E;
+
+if isempty(anchor_idx)
+    [~, anchor_idx] = max(I_full(:));
+end
+
+n1 = N;
+n2 = nnz(mask_out_E);
+n3 = 1; % anchor row
+Mtot = n1 + n2 + n3;
+
+b = zeros(Mtot,1);
+b(end) = lambdaRef * 1;   % X(anchor_idx)=1
+
+if isempty(X0)
+    x0 = ones(N,1);
+else
+    if isequal(size(X0), [Ny, Nx])
+        x0 = X0(:);
+    elseif isequal(size(X0), [N,1])
+        x0 = X0;
+    else
+        error('X0 must be Ny x Nx or N x 1.');
+    end
+end
+
+Afcn = @(x,transp_flag) diff_dbfh_lsqr_operator( ...
+    x, transp_flag, sqrtI, C, m, mask_out_E, lambdaCS, lambdaRef, anchor_idx, Ny, Nx);
+
+[x, flag, relres, iter,resvec] = lsqr(Afcn, b, lsqrTol, lsqrMaxIter, [], [], x0);
+
+X = reshape(x, Ny, Nx);
+X_norm = X./abs(X);
+
+A = sqrtI .* X_norm;
+E = ifft2c(A);
+deltaE = m .* E;
+deltaA = fft2c(deltaE);
+
+r_eq = C .* X - sqrtI .* deltaA;
+r_cs = E(mask_out_E);
+r_ref = X(anchor_idx) - 1;
+
+
+A_true = sqrtI .* X_true;
+E_true = ifft2c(A_true);
+deltaE_true = m .* E_true;
+deltaA_true = fft2c(deltaE_true);
+
+%% debug
+
+r_eq_true = C .* X_true - sqrtI .* deltaA_true;
+
+A_rec = sqrtI .* X_norm;
+E_rec = ifft2c(A_rec);
+deltaE_rec = m .* E_rec;
+deltaA_rec = fft2c(deltaE_rec);
+
+r_eq_rec = C .* X_norm - sqrtI .* deltaA_rec;
+
+fprintf('||r_eq_true|| = %.3e\n', norm(r_eq_true(:)));
+fprintf('||r_eq_rec||  = %.3e\n', norm(r_eq_rec(:)));
+%% more debug
+
+A_true = sqrtI .* X_true;
+E_true = ifft2c(A_true);
+deltaE_true = m .* E_true;
+deltaA_true = fft2c(deltaE_true);
+
+r_eq_true = C .* X_true - sqrtI .* deltaA_true;
+r_cs_true = E_true(~cs_E);
+r_ref_true = real(X_true(anchor_idx)) - 1;   % or whatever anchor you use
+
+fprintf('||r_eq_true||  = %.3e\n', norm(r_eq_true(:)));
+fprintf('||r_cs_true||  = %.3e\n', norm(r_cs_true(:)));
+fprintf('|r_ref_true|   = %.3e\n', abs(r_ref_true));
+
+out = struct();
+out.X = X;
+out.X_norm = X_norm;
+out.A = A;
+out.E = E;
+out.deltaE = deltaE;
+out.deltaA = deltaA;
+out.flag = flag;
+out.relres = relres;
+out.iter = iter;
+out.anchor_idx = anchor_idx;
+out.res_eq = norm(r_eq(:));
+out.res_cs = norm(r_cs(:));
+out.res_ref = abs(r_ref);
+
+if verbose
+    fprintf('diff_DBFH: %d x %d\n', Ny, Nx);
+    fprintf('  anchor idx   = %d\n', anchor_idx);
+    fprintf('  lsqr flag    = %d\n', flag);
+    fprintf('  lsqr relres  = %.3e\n', relres);
+    fprintf('  lsqr iter    = %d\n', iter);
+    fprintf('  ||eq||       = %.3e\n', out.res_eq);
+    fprintf('  ||cs||       = %.3e\n', out.res_cs);
+    fprintf('  |Xref-1|     = %.3e\n', out.res_ref);
+end
+
+if show_plots
+    figure;semilogy(resvec,'linewidth',2);title({'DBFH';'residual vs # iteration'});grid on;xlim([1,lsqrMaxIter]);
+end
+
+end
+
+
+function y = diff_dbfh_lsqr_operator(x, transp_flag, sqrtI, C, m, mask_out_E, lambdaCS, lambdaRef, anchor_idx, Ny, Nx)
+
+if strcmp(transp_flag, 'notransp')
+
+    X = reshape(x, Ny, Nx);
+
+    A = sqrtI .* X;
+    E = ifft2c(A);
+    deltaE = m .* E;
+    deltaA = fft2c(deltaE);
+
+    r1 = C .* X - sqrtI .* deltaA;
+    r2 = lambdaCS * E(mask_out_E);
+    r3 = lambdaRef * X(anchor_idx);
+
+    y = [r1(:); r2; r3];
+
+else
+    idx1 = Ny * Nx;
+    n2 = nnz(mask_out_E);
+
+    r1  = reshape(x(1:idx1), Ny, Nx);
+    r2v = x(idx1+1 : idx1+n2);
+    r3  = x(end);
+
+    % adjoint of cross-term block
+    g1a = conj(C) .* r1;
+
+    tmp = sqrtI .* r1;
+    tmp = ifft2c(tmp);
+    tmp = m .* tmp;
+    tmp = fft2c(tmp);
+    g1b = sqrtI .* tmp;
+
+    g1 = g1a - g1b;
+
+    % adjoint of CS block
+    R2 = zeros(Ny, Nx);
+    R2(mask_out_E) = lambdaCS * r2v;
+    g2 = sqrtI .* fft2c(R2);
+
+    % adjoint of anchor row
+    g3 = zeros(Ny, Nx);
+    g3(anchor_idx) = lambdaRef * r3;
+
+    y = g1(:) + g2(:) + g3(:);
+end
+
+end
+
+
+function F = fft2c(x)
+F = fftshift(fft2(ifftshift(x))) / sqrt(numel(x));
+end
+
+function x = ifft2c(F)
+x = fftshift(ifft2(ifftshift(F))) * sqrt(numel(F));
+end

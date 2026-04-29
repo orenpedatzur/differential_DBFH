@@ -1,0 +1,246 @@
+% DBFH in control loop settings
+% Step 1: generate a smooth baseline pupil field 
+% Nomenclature:
+%   E_0(x) = A_0(x) * exp(i*phi_0(x))
+% The user must supply a known initial field, and we solve for the
+% difference.
+
+clear; clc; close all;
+
+%% grid
+N = 1024;
+[x, y] = meshgrid( (-N/2):(N/2-1), (-N/2):(N/2-1) );
+r = sqrt(x.^2 + y.^2);
+
+%% compact support (CS): circular pupil
+R_CS = 300;
+CS = (r <= R_CS);
+
+%% generate smooth random phase phi_0(x)
+rng(1);
+
+% white noise -> low-pass filtered in Fourier domain
+noise_phase = randn(N, N);
+
+[kx, ky] = meshgrid( (-N/2):(N/2-1), (-N/2):(N/2-1) );
+kr = sqrt(kx.^2 + ky.^2);
+
+sigma_k_phase = 18; % smaller -> smoother
+LP_phase = exp(-(kr.^2) / (2*sigma_k_phase^2));
+
+noise_phase_f = fftshift(fft2(noise_phase));
+phi_0_smooth = real(ifft2(ifftshift(noise_phase_f .* LP_phase)));
+
+% normalize and scale
+phi_0_smooth = phi_0_smooth - mean(phi_0_smooth(CS));
+phi_0_smooth = phi_0_smooth / std(phi_0_smooth(CS));
+
+phi0_rms = 0.5; % radians RMS inside CS
+phi_0 = zeros(N, N);
+phi_0(CS) = phi0_rms * phi_0_smooth(CS);
+
+%% generate slowly varying amplitude A_0(x)
+noise_amp = randn(N, N);
+
+sigma_k_amp = 10; % smoother than phase
+LP_amp = exp(-(kr.^2) / (2*sigma_k_amp^2));
+
+noise_amp_f = fftshift(fft2(noise_amp));
+amp_smooth = real(ifft2(ifftshift(noise_amp_f .* LP_amp)));
+
+amp_smooth = amp_smooth - mean(amp_smooth(CS));
+amp_smooth = amp_smooth / std(amp_smooth(CS));
+
+amp_variation = 0.08; % fractional variation
+A_0 = zeros(N, N);
+A_0(CS) = 1 + amp_variation * amp_smooth(CS);
+
+% enforce positivity
+A_0(CS) = max(A_0(CS), 0.05);
+
+%% baseline pupil field
+E_0 = A_0 .* exp(1i * phi_0);
+
+%% focal-plane field and intensity
+A = fftshift(fft2(ifftshift(E_0)));
+I_0 = abs(A).^2;
+
+%% quick diagnostics
+fprintf('Grid size                : %d x %d\n', N, N);
+fprintf('CS radius                : %d px\n', R_CS);
+fprintf('CS pixels (N_CS)         : %d\n', nnz(CS));
+fprintf('phi_0 RMS inside CS      : %.4f rad\n', std(phi_0(CS)));
+fprintf('A_0 mean inside CS       : %.4f\n', mean(A_0(CS)));
+fprintf('A_0 std inside CS        : %.4f\n', std(A_0(CS)));
+
+%% plots
+figure('Color','w');
+
+subplot(2,3,1);
+imagesc(CS); axis image off; colormap(gca, gray);
+title('CS mask');
+
+subplot(2,3,2);
+imagesc(A_0); axis image off; colorbar;
+title('A_0(x)');
+
+subplot(2,3,3);
+imagesc(phi_0); axis image off; colorbar;
+title('\phi_0(x) [rad]');
+
+subplot(2,3,4);
+imagesc(real(E_0)); axis image off; colorbar;
+title('Re\{E_0(x)\}');
+
+subplot(2,3,5);
+imagesc(imag(E_0)); axis image off; colorbar;
+title('Im\{E_0(x)\}');
+
+subplot(2,3,6);
+imagesc(log10(I_0 + 1)); axis image off; colorbar;
+title('log_{10}(I_0(\xi)+1)');
+
+
+
+% Step 2: generate a smooth drift phase front 
+% Nomenclature: 
+%   E_1(x) = A_0(x) * exp(i*phi_0(x)+i*phi_1(x))
+
+%% generate smooth drift function phi_1(x)
+
+noise_drift = randn(N, N);
+
+sigma_k_drift = 14; % smooth drift
+LP_drift = exp(-(kr.^2) / (2*sigma_k_drift^2));
+
+noise_drift_f = fftshift(fft2(noise_drift));
+phi_1_smooth = real(ifft2(ifftshift(noise_drift_f .* LP_drift)));
+
+phi_1_smooth = phi_1_smooth - mean(phi_1_smooth(CS));
+phi_1_smooth = phi_1_smooth / std(phi_1_smooth(CS));
+
+phi1_rms = 1e-3; % actual RMS drift in radians, includes epsilon scaling
+phi_1 = zeros(N, N);
+phi_1(CS) = phi1_rms * phi_1_smooth(CS);
+
+
+%% drifted pupil field
+E_1 = A_0 .* exp(1i * (phi_0 + phi_1));
+
+%% focal-plane field and intensity
+U_1 = fftshift(fft2(ifftshift(E_1)));
+I_1 = abs(U_1).^2;
+
+%% differential image
+Delta_I = I_1 - I_0;
+
+
+% debug:
+
+% A = fftshift(fft2(ifftshift(E_0)));
+% P = zeros(N,N);
+% P(CS) = exp(1i * angle(E_0(CS)));
+% 
+% q_true = A_0 .* phi_1;
+% B_true = fftshift(fft2(ifftshift(P .* q_true)));
+% 
+% Delta_I_lin = 2 * imag(A .* conj(B_true));
+% 
+% figure;plot(Delta_I(:));hold on;plot(Delta_I_lin(:),'--')
+
+%% diagnostics
+fprintf('phi_1 RMS inside CS      : %.4f rad\n', std(phi_1(CS)));
+fprintf('phi_1 RMS in CS  : %.4e rad\n', std(phi_1(CS)));
+
+%% plots
+figure('Color','w');
+
+subplot(1,3,1);
+imagesc(phi_1); axis image off; colorbar;
+title('\phi_1(x)');
+
+subplot(1,3,3);
+imagesc(sign(Delta_I) .* log10(abs(Delta_I) + 1)); axis image off; colorbar;
+title('signed log_{10}(|\Delta I|+1)');
+
+%% solve
+
+[phi_1_rec, q_rec, out] = solve_phi1_linear(Delta_I, E_0, CS, 0*1e-6, 1e3, 1e-8);
+
+%% validation plots for recovered phi_1 vs ground truth
+
+err_phi1 = phi_1_rec - phi_1;
+
+phi1_true_rms = std(phi_1(CS));
+phi1_rec_rms  = std(phi_1_rec(CS));
+err_rms       = std(err_phi1(CS));
+
+num = sum(phi_1(CS) .* phi_1_rec(CS));
+den = sqrt(sum(phi_1(CS).^2) * sum(phi_1_rec(CS).^2));
+corr_phi1 = num / den;
+
+fprintf('true phi_1 RMS in CS     : %.4e rad\n', phi1_true_rms);
+fprintf('rec  phi_1 RMS in CS     : %.4e rad\n', phi1_rec_rms);
+fprintf('err  phi_1 RMS in CS     : %.4e rad\n', err_rms);
+fprintf('corr(phi_1_rec, phi_1)   : %.6f\n', corr_phi1);
+
+figure('Color','w','Position',[100 100 1500 800]);
+
+subplot(2,3,1);
+imagesc(phi_1);
+axis image off;
+colorbar;
+title('true \phi_1');
+
+subplot(2,3,2);
+imagesc(phi_1_rec);
+axis image off;
+colorbar;
+title('recovered \phi_1');
+
+subplot(2,3,3);
+imagesc(err_phi1);
+axis image off;
+colorbar;
+title('error: \phi_1^{rec}-\phi_1');
+
+subplot(2,3,4);
+tmp = phi_1;
+tmp(~CS) = NaN;
+imagesc(tmp);
+axis image off;
+colorbar;
+title('true \phi_1 (CS only)');
+
+subplot(2,3,5);
+tmp = phi_1_rec;
+tmp(~CS) = NaN;
+imagesc(tmp);
+axis image off;
+colorbar;
+title('recovered \phi_1 (CS only)');
+
+subplot(2,3,6);
+scatter(phi_1(CS), phi_1_rec(CS), 4, '.');
+axis equal;
+grid on;
+xlabel('true \phi_1');
+ylabel('recovered \phi_1');
+title(sprintf('scatter in CS, corr = %.4f', corr_phi1));
+
+figure('Color','w','Position',[200 200 1200 400]);
+
+subplot(1,3,1);
+histogram(phi_1(CS), 100);
+xlabel('\phi_1');
+title('true \phi_1 histogram');
+
+subplot(1,3,2);
+histogram(phi_1_rec(CS), 100);
+xlabel('\phi_1');
+title('recovered \phi_1 histogram');
+
+subplot(1,3,3);
+histogram(err_phi1(CS), 100);
+xlabel('error');
+title('error histogram');
