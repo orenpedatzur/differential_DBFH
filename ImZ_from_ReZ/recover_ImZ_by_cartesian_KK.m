@@ -1,4 +1,3 @@
-
 function [ImZ_rec, info] = recover_ImZ_by_cartesian_KK(ReZ, CSg, theta_list, varargin)
 %RECOVER_IMZ_BY_CARTESIAN_KK Recover Im(Z) from Re(Z) using a Cartesian
 %line-domain one-sided support construction.
@@ -146,6 +145,7 @@ info.Ycart = Ycart;
 info.valid_disk = valid_disk;
 info.valid_angle_fraction = valid_frac;
 info.KKSign = KKSign;
+info.theta = theta_list;
 info.SideFlip = SideFlip;
 info.YSign = YSign;
 info.n_hat = n_hat;

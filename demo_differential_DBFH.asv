@@ -27,14 +27,14 @@ rng(1);
 %  USER PARAMETERS
 %  ========================================================================
 
-N                 = 512/4;          % grid size
-seg_radius_pix    = 20/4;            % hex circumradius in pixels
-num_rings         = 3;               % segmented aperture rings
-string_depth_pix  = 8/4;            % depth of the E2 cap inside the top segment
-gap_pix           = 1;               % physical gap between E1 and E2 supports
-noise_level       = 1e-5;              % gaussian noise
+N                 = 1024;          % grid size
+seg_radius_pix    = 40;            % hex circumradius in pixels
+num_rings         = 3;             % segmented aperture rings
+string_depth_pix  = 5;            % depth of the E2 cap inside the top segment
+gap_pix           = 1;             % physical gap between E1 and E2 supports
+noise_level       = 0*1e-6;          % gaussian noise
 
-d_theta           = 0.1;
+d_theta           = 0.25;
 theta_list        = 0:d_theta:180-d_theta;
 
 use_exact_ReZ     = false;           % false: ReZ = DeltaI/2, true: ReZ = real(Z_true)
@@ -48,8 +48,8 @@ nsamp             = 30;              % Hutchinson samples
 blockSize         = 1;
 useGPU            = false;
 precond_cap       = 1e2;             % cap p <= precond_cap * median(p)
-lsqr_tol          = 1e-12;
-lsqr_maxit        = 5000;
+lsqr_tol          = 1e-8;
+lsqr_maxit        = 1e3;
 
 % System weights. For solve-for-E2, keep K broad; do not truncate the focal grid
 % unless you are deliberately testing masking. crossWeight=100 was the best
@@ -86,9 +86,15 @@ cut_E2  = s_edge - string_depth_pix;
 cut_gap = cut_E2 - gap_pix;
 
 supp2    = top_mask & (S >= cut_E2);
+
 gap_mask = top_mask & (S >= cut_gap) & (S < cut_E2);
 supp1    = aperture & ~supp2 & ~gap_mask;
 supp12   = supp1 | supp2;
+
+% for Codona cut: 
+% supp2    = (X<-N/40-10)&(X>-2*N/40-10)&(Y>90)&aperture;
+% supp1    = aperture & ~supp2 ;
+% supp12   = supp1 | supp2;
 
 %% ========================================================================
 %  RANDOM SEGMENTED PHASE FRONT
@@ -211,7 +217,7 @@ else
     solver_label = 'recovered Z = ReZ_meas + i ImZ_rec';
 end
 
-% Unknown vector is x = [X1_on_Kfree ; E2_on_supp2].
+% Unknown vector is x = [X1_on_K(except anchor) ; E2_on_supp2].
 % X1(anchor) is inserted exactly by the hard-anchor system.
 % No Z./|A1| division is used.
 sys = diff_dbfh_prepare_system( ...
@@ -460,7 +466,7 @@ end
 
 function plot_support_diagnostics(supp1, supp2, gap_mask, CSg)
 %PLOT_SUPPORT_DIAGNOSTICS Show pupil supports and correlation support.
-
+N = size(supp1,1);
 figure('Color','w','Name','Support diagnostics','Position',[100 100 1500 450]);
 tiledlayout(1,4,'TileSpacing','compact','Padding','compact');
 
@@ -468,6 +474,7 @@ nexttile; imagesc(supp1); axis image off; colorbar; title('supp1: exposed pupil'
 nexttile; imagesc(supp2); axis image off; colorbar; title('supp2: blocked cap');
 nexttile; imagesc(gap_mask); axis image off; colorbar; title('intentional gap');
 nexttile; imagesc(CSg); axis image off; colorbar; title('CSg = supp IFT[A1^*A2]');
+hold on;plot(N/2,N/2,'ok','MarkerFaceColor','k');
 colormap parula;
 
 end
@@ -497,10 +504,10 @@ if isfield(kk,'gI_true_all') && ~isempty(kk.gI_true_all)
     ia = round(size(kk.gI_all,2)/4);
     figure('Color','w','Name','KK line-domain diagnostic','Position',[150 150 1200 700]);
     tiledlayout(2,2,'TileSpacing','compact','Padding','compact');
-    nexttile; plot(real(kk.gI_true_all(:,ia)),'LineWidth',1.2); hold on; plot(real(kk.gI_all(:,ia)),'--','LineWidth',1.2); grid on; title('Re line: truth vs rec'); legend('truth','rec');
-    nexttile; plot(imag(kk.gI_true_all(:,ia)),'LineWidth',1.2); hold on; plot(imag(kk.gI_all(:,ia)),'--','LineWidth',1.2); grid on; title('Im line: truth vs rec'); legend('truth','rec');
-    nexttile; imagesc(real(kk.gI_all - kk.gI_true_all)); axis image; colorbar; title('Re line-domain error');
-    nexttile; imagesc(imag(kk.gI_all - kk.gI_true_all)); axis image; colorbar; title('Im line-domain error');
+    nexttile; plot(real(kk.gI_true_all(:,ia)),'LineWidth',1.2); hold on; plot(real(kk.gI_all(:,ia)),'--','LineWidth',1.2); grid on; title('Re line: truth vs rec'); legend('truth','rec');xlabel('px');axis tight;
+    nexttile; plot(imag(kk.gI_true_all(:,ia)),'LineWidth',1.2); hold on; plot(imag(kk.gI_all(:,ia)),'--','LineWidth',1.2); grid on; title('Im line: truth vs rec'); legend('truth','rec');xlabel('px');axis tight;
+    nexttile; imagesc(kk.theta,1:size(kk.R_Re,1),real(kk.gI_all - kk.gI_true_all)); axis tight; colorbar; title('Re line-domain error');xlabel('\theta [degs]');ylabel('px');
+    nexttile; imagesc(kk.theta,1:size(kk.R_Re,1),imag(kk.gI_all - kk.gI_true_all)); axis tight; colorbar; title('Im line-domain error');xlabel('\theta [degs]');ylabel('px');
     colormap parula;
 end
 
