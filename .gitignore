@@ -1,3 +1,4 @@
 *.mat
 *.asvdiff_DBFH/data/diff_DBFH_loop.mat
 data/
+figures/
