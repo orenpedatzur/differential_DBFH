@@ -513,8 +513,8 @@ title('num iteration');
 colorbar;
 colormap(ax(6),parula);
 
-% saveas(fig_error_diagnostics,'K:\My Drive\differential_DBFH\figures\error_diagnostics_N1024_1E6.png');
-save('K:\My Drive\differential_DBFH\data\error_diagnostics_N1024_1E6.mat')
+% saveas(fig_error_diagnostics,'C:\differential_DBFH\figures\error_diagnostics_N1024_1E6.png');
+save('C:\differential_DBFH\data\error_diagnostics_N1024_1E6.mat')
 
 %% ========================================================================
 %  LOCAL FUNCTIONS
