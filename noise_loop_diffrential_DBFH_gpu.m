@@ -14,7 +14,7 @@ rng(1);
 winsomnia(true);
 
 noise_lvl_vec = 10.^[-8:0.5:-2.5];
-height_px_vec = 1:1:16;
+height_px_vec = 1:1:32;
 
 %% ========================================================================
 %  USER PARAMETERS
@@ -51,7 +51,7 @@ crossWeight       = 100;
 % Hard anchor is enforced by removing the anchor pixel from the unknown vector.
 % No soft anchor weight is used.
 for ind_noise = 1:numel(noise_lvl_vec)
-    for ind_px = 1:numel(height_px_vec)
+    for ind_px = 17:numel(height_px_vec)
 
         string_depth_pix  = height_px_vec(ind_px);
         noise_level       = noise_lvl_vec(ind_noise);
