@@ -57,9 +57,6 @@ Q_pix_per_lambdaD_eff   = lambda_m * f_m / (D_m_inscribed * px_m_focal_plane_eff
 lambdaD_per_pix_eff     = 1 / Q_pix_per_lambdaD_eff;
 
 % Perturbation geometry in pupil pixels.
-% With physical sampling enabled, the old value string_depth_pix=10 is a
-% much smaller fraction of a segment than it was for seg_radius_pix=40.
-% Keep it fixed only if that is intentional.
 string_depth_pix  = 25;
 gap_pix           = 0;
 
@@ -171,8 +168,7 @@ else
 end
 
 % ---------------- SUPPORT-BASED SCALE CORRECTION ----------------
-% this tep can potentially help rescale the intensity in each pixel using
-% the known Re and Im relationship outside the CSg (not only half plane)
+
 gR = ifft2c(ReZ_meas);
 gI_raw = ifft2c(ImZ_raw);
 
