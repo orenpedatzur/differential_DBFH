@@ -49,16 +49,31 @@ rng(1);
 %  USER PARAMETERS
 %  ========================================================================
 
+zernike_nMax            = 2;
+zernike_coeff_sigma_rad = 0.5;
+
+
 % HWO-like segmented aperture, matching demo_differential_DBFH_gpu.m.
-N                 = 2048/2;
-seg_radius_pix    = 40/2;
+N                 = 2048;
+seg_radius_pix    = 40;
 num_rings         = 3;
-string_depth_pix  = 10/2;
+string_depth_pix  = 10;  %10/2;
 gap_pix           = 1;
+
+% connect to physical quantities
+D_m_inscribed = 8.2; % m for HWO
+f_m = 171; % m for HWO
+lambda_m = 550e-9; % reference wavelength
+
+px_m_pupil_plane = D_m_inscribed/(7*seg_radius_pix); % pixel size in meters in pupil plane. 7 hexagons for inscribed diameter
+L_m_pupil = px_m_pupil_plane*N; % size of simulated region in pupil plane
+px_m_focal_plane = lambda_m*f_m/L_m_pupil; % pixel size in focal plane in meters
+
+Q = lambda_m*f_m/(D_m_inscribed*px_m_focal_plane);
 
 % Noise model: independent additive Gaussian noise on each PSF image,
 % scaled by max(I_full(:)).
-noise_level       = 1e-4;
+noise_level       = 1e-6;
 use_noisy_mag1_for_dDBFH = true;
 
 % Cross-term recovery controls for dDBFH.
@@ -73,7 +88,7 @@ nsamp             = 30;
 blockSize         = 1;
 precond_cap       = 1e2;
 lsqr_tol          = 1e-8;
-lsqr_maxit        = 1e3;
+lsqr_maxit        = 3e3;
 K_threshold       = 1e-2;
 supportScale      = 1;
 crossWeight       = 100;
@@ -131,30 +146,32 @@ fprintf('dOTF optimal masked pixels      = %d\n', nnz(supp2_dotf_same_npix));
 %% ========================================================================
 %  RANDOM SEGMENTED PHASE FRONT
 %  ========================================================================
+% 
+% E = zeros(N,N);
+% 
+% for k = 1:nSeg
+%     mk = seg_id == k;
+%     if ~any(mk(:)), continue; end
+% 
+%     cx = seg_centers(k,1);
+%     cy = seg_centers(k,2);
+% 
+%     dx = (X - cx) / seg_radius_pix;
+%     dy = (Y - cy) / seg_radius_pix;
+% 
+%     piston = 1.0 * randn();
+%     tip    = 1.0 * randn();
+%     tilt   = 1.0 * randn();
+%     defoc  = 1.0 * randn();
+% 
+%     rho2 = dx.^2 + dy.^2;
+%     rho2_mean = mean(rho2(mk));
+% 
+%     phi = piston + tip*dx + tilt*dy + defoc*(rho2 - rho2_mean);
+%     E(mk) = exp(1i * phi(mk));
+% end
 
-E = zeros(N,N);
-
-for k = 1:nSeg
-    mk = seg_id == k;
-    if ~any(mk(:)), continue; end
-
-    cx = seg_centers(k,1);
-    cy = seg_centers(k,2);
-
-    dx = (X - cx) / seg_radius_pix;
-    dy = (Y - cy) / seg_radius_pix;
-
-    piston = 1.0 * randn();
-    tip    = 1.0 * randn();
-    tilt   = 1.0 * randn();
-    defoc  = 1.0 * randn();
-
-    rho2 = dx.^2 + dy.^2;
-    rho2_mean = mean(rho2(mk));
-
-    phi = piston + tip*dx + tilt*dy + defoc*(rho2 - rho2_mean);
-    E(mk) = exp(1i * phi(mk));
-end
+E = make_random_segmented_field(seg_id, seg_centers, X, Y, seg_radius_pix, nSeg, zernike_nMax, zernike_coeff_sigma_rad);
 
 % dDBFH perturbation fields
 E12 = E .* supp12_dbfh;
@@ -914,4 +931,151 @@ else
     if a == 0, a = 1; end
 end
 clim(ax, [-a a]);
+end
+
+
+function E = make_random_segmented_field(seg_id, seg_centers, X, Y, seg_radius_pix, nSeg, zernike_nMax, coeff_sigma_rad)
+%MAKE_RANDOM_SEGMENTED_FIELD Random segmented phase front from per-segment Zernikes.
+%
+% E = make_random_segmented_field(..., zernike_nMax, coeff_sigma_rad)
+%
+% zernike_nMax:
+%   maximum radial Zernike order included on each segment.
+%   0 = piston only
+%   1 = piston + tip/tilt
+%   2 = piston + tip/tilt + defocus/astigmatism
+%   3 = + coma/trefoil
+%   etc.
+%
+% coeff_sigma_rad:
+%   scalar or vector of random coefficient standard deviations in radians.
+%   If scalar, the same sigma is used for every included mode.
+%   If vector, it must have one entry per generated real Zernike mode.
+%
+% Basis convention:
+%   Real Zernikes on normalized local segment coordinates:
+%       m = 0       : R_n^0(r)
+%       m > 0, cos : R_n^m(r) cos(m theta)
+%       m > 0, sin : R_n^m(r) sin(m theta)
+%   Each mode is mean-subtracted except piston, then RMS-normalized on the
+%   actual hexagonal segment pixels. Therefore coeff_sigma_rad is directly a
+%   per-mode phase scale in radians over the segment mask.
+
+if nargin < 7 || isempty(zernike_nMax)
+    zernike_nMax = 2;
+end
+if nargin < 8 || isempty(coeff_sigma_rad)
+    coeff_sigma_rad = 1.0;
+end
+if zernike_nMax < 0 || zernike_nMax ~= floor(zernike_nMax)
+    error('zernike_nMax must be a nonnegative integer.');
+end
+
+modes = make_real_zernike_mode_list(zernike_nMax);
+nModes = numel(modes);
+
+if isscalar(coeff_sigma_rad)
+    coeff_sigma_rad = coeff_sigma_rad * ones(nModes,1);
+else
+    coeff_sigma_rad = coeff_sigma_rad(:);
+    if numel(coeff_sigma_rad) ~= nModes
+        error('coeff_sigma_rad must be scalar or have one entry per mode. nModes = %d.', nModes);
+    end
+end
+
+E = zeros(size(seg_id));
+
+for k = 1:nSeg
+    mk = seg_id == k;
+    if ~any(mk(:)), continue; end
+
+    cx = seg_centers(k,1);
+    cy = seg_centers(k,2);
+
+    dx = (X - cx) / seg_radius_pix;
+    dy = (Y - cy) / seg_radius_pix;
+    r = hypot(dx, dy);
+    th = atan2(dy, dx);
+
+    phi = zeros(size(seg_id));
+
+    for j = 1:nModes
+        n = modes(j).n;
+        m = modes(j).m;
+        kind = modes(j).kind;
+
+        Z = real_zernike_nm(n, m, kind, r, th);
+
+        if ~(n == 0 && m == 0)
+            Z = Z - mean(Z(mk));
+        end
+
+        zrms = sqrt(mean(Z(mk).^2));
+        if zrms <= eps || ~isfinite(zrms)
+            continue;
+        end
+        Z = Z / zrms;
+
+        coeff = coeff_sigma_rad(j) * randn();
+        phi(mk) = phi(mk) + coeff * Z(mk);
+    end
+
+    E(mk) = exp(1i * phi(mk));
+end
+end
+
+function modes = make_real_zernike_mode_list(nMax)
+%MAKE_REAL_ZERNIKE_MODE_LIST Real Zernike modes through radial order nMax.
+% Order is piston, then increasing n, then m. For m>0, cos then sin.
+
+modes = struct('n', {}, 'm', {}, 'kind', {});
+for n = 0:nMax
+    for m = 0:n
+        if mod(n - m, 2) ~= 0
+            continue;
+        end
+        if m == 0
+            modes(end+1) = struct('n', n, 'm', m, 'kind', 'm0'); %#ok<AGROW>
+        else
+            modes(end+1) = struct('n', n, 'm', m, 'kind', 'cos'); %#ok<AGROW>
+            modes(end+1) = struct('n', n, 'm', m, 'kind', 'sin'); %#ok<AGROW>
+        end
+    end
+end
+end
+
+function Z = real_zernike_nm(n, m, kind, r, th)
+%REAL_ZERNIKE_NM Real-valued Zernike mode evaluated on r, theta.
+
+R = zernike_radial(n, m, r);
+
+switch lower(kind)
+    case 'm0'
+        Z = R;
+    case 'cos'
+        Z = R .* cos(m * th);
+    case 'sin'
+        Z = R .* sin(m * th);
+    otherwise
+        error('Unknown Zernike kind: %s', kind);
+end
+end
+
+function R = zernike_radial(n, m, r)
+%ZERNIKE_RADIAL Radial polynomial R_n^m(r), using the standard definition.
+
+if m < 0 || m > n || mod(n - m, 2) ~= 0
+    R = zeros(size(r));
+    return;
+end
+
+R = zeros(size(r));
+for s = 0:((n - m)/2)
+    logc = gammaln(n - s + 1) ...
+         - gammaln(s + 1) ...
+         - gammaln((n + m)/2 - s + 1) ...
+         - gammaln((n - m)/2 - s + 1);
+    c = (-1)^s * exp(logc);
+    R = R + c * r.^(n - 2*s);
+end
 end

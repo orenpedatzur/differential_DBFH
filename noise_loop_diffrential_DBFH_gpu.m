@@ -40,18 +40,22 @@ blockSize         = 1;
 useGPU            = true;
 precond_cap       = 1e2;             % cap p <= precond_cap * median(p)
 lsqr_tol          = 1e-8;
-lsqr_maxit        = 1e6;
+lsqr_maxit        = 1e4;
 
 % System weights. For solve-for-E2, keep K broad; do not truncate the focal grid
 % unless you are deliberately testing masking. crossWeight=100 was the best
 % value from the latest sweep.
-K_threshold       = 1e-3;
+K_threshold       = 1e-2;
 supportScale      = 1;
 crossWeight       = 100;
 % Hard anchor is enforced by removing the anchor pixel from the unknown vector.
 % No soft anchor weight is used.
+%%
 for ind_noise = 1:numel(noise_lvl_vec)
-    for ind_px = 17:numel(height_px_vec)
+    for ind_px = 1:numel(height_px_vec)
+
+
+        %%
 
         string_depth_pix  = height_px_vec(ind_px);
         noise_level       = noise_lvl_vec(ind_noise);
@@ -442,10 +446,23 @@ for ind_noise = 1:numel(noise_lvl_vec)
         data(ind_noise,ind_px).stats = stats;
         data(ind_noise,ind_px).sys = sys;
         data(ind_noise,ind_px).out = out;
+
+        %% clear GPU memory
+        % Explicit GPU inputs
+        clear mag1_sys Z_solver_sys supp1_sys supp2_sys
+        clear X1_true_sys E2_true_sys
+        
+        % Ensure queued GPU work is finished
+        gd = gpuDevice;
+        reset(gd);
+
+%%
+
     end
 end
 
 winsomnia(false);
+save('C:\differential_DBFH\data\error_diagnostics_N1024_1E4_again_2.mat',"-v7.3")
 
 
 %% figures
@@ -468,7 +485,7 @@ ylabel('normalized noise lvl');
 title('phase RMSE');
 colorbar;
 hold on;
-[C,h] = contour(height_px_vec,noise_lvl_vec,phase_rmse_rad_mat,round(10.^[-3:0.1:0],3),'color','k','linewidth',2,'linestyle',':');
+[C,h] = contour(height_px_vec,noise_lvl_vec,phase_rmse_rad_mat,round(10.^[-3:0.1:0],3),'color','w','linewidth',2,'linestyle',':');
 clabel(C,h,'labelspacing',1e3);
 colormap(ax(1),parula);
 
@@ -481,7 +498,7 @@ ylabel('normalized noise lvl');
 title('E_1 leak');
 colorbar;
 hold on;
-[C,h] = contour(height_px_vec,noise_lvl_vec,raw_leak1_mat,round(10.^[-3:0.1:0],3),'color','k','linewidth',2,'linestyle',':');
+[C,h] = contour(height_px_vec,noise_lvl_vec,raw_leak1_mat,round(10.^[-3:0.1:0],3),'color','w','linewidth',2,'linestyle',':');
 clabel(C,h,'labelspacing',1e3);
 colormap(ax(2),parula);
 
@@ -514,7 +531,39 @@ colorbar;
 colormap(ax(6),parula);
 
 % saveas(fig_error_diagnostics,'C:\differential_DBFH\figures\error_diagnostics_N1024_1E6.png');
-save('C:\differential_DBFH\data\error_diagnostics_N1024_1E6.mat')
+%%
+
+
+figure('Position',[100,100,2000,300]);
+t = tiledlayout(1, 3, 'TileSpacing', 'compact', 'Padding', 'none');
+
+ax(1) =     nexttile;
+h = imagesc(height_px_vec,1./noise_lvl_vec,phase_rmse_rad_mat); 
+xlabel('perturbation height [px]');ylabel('SNR');
+title('phase RMSE');
+cbar = colorbar;cbar.Label.String = '[rad]';cbar.Label.FontSize = 16;
+colormap(ax(1),gray);
+yticks(10.^[2:8]);
+set(gca,'YScale','log','YMinorTick','on','Ydir','normal','FontSize',16,'LineWidth',2);
+
+ax(2) =     nexttile;
+h = imagesc(height_px_vec,1./noise_lvl_vec,raw_leak1_mat); 
+xlabel('perturbation height [px]');ylabel('SNR');
+title('E_1 leak');
+cbar = colorbar;cbar.Label.String = '[normalized]';cbar.Label.FontSize = 16;
+colormap(ax(2),gray);
+yticks(10.^[2:8]);
+set(gca,'YScale','log','YMinorTick','on','Ydir','normal','FontSize',16,'LineWidth',2);
+
+
+ax(3) =     nexttile;
+h = imagesc(height_px_vec,1./noise_lvl_vec,relres_mat); 
+xlabel('perturbation height [px]');ylabel('SNR');
+title('solver residuals');
+cbar = colorbar;
+colormap(ax(3),gray);
+yticks(10.^[2:8]);
+set(gca,'YScale','log','YMinorTick','on','Ydir','normal','FontSize',16,'LineWidth',2);
 
 %% ========================================================================
 %  LOCAL FUNCTIONS

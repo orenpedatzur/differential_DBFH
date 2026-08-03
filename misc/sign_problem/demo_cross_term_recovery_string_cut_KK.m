@@ -38,30 +38,7 @@ gap_mask = top_mask & (S >= cut_gap) & (S < cut_E2);
 E1_mask = aperture & ~E2_mask & ~gap_mask;
 
 % ---------------- RANDOM SEGMENTED PHASE FRONT ----------------
-E = zeros(N,N);
-
-for k = 1:nSeg
-    mk = seg_id == k;
-    if ~any(mk(:)), continue; end
-
-    cx = seg_centers(k,1);
-    cy = seg_centers(k,2);
-
-    dx = (X - cx) / seg_radius_pix;
-    dy = (Y - cy) / seg_radius_pix;
-
-    piston = 1 * randn();
-    tip    = 0.5 * randn();
-    tilt   = 0.5 * randn();
-    defoc  = 0.5 * randn();
-
-    rho2 = dx.^2 + dy.^2;
-    rho2_mean = mean(rho2(mk));
-
-    phi = piston + tip*dx + tilt*dy + defoc*(rho2 - rho2_mean);
-
-    E(mk) = exp(1i * phi(mk));
-end
+E = make_random_segmented_field(seg_id, seg_centers, X, Y, seg_radius_pix, nSeg, zernike_nMax, zernike_coeff_sigma_rad);
 
 E1 = E .* E1_mask;
 E2 = E .* E2_mask;
