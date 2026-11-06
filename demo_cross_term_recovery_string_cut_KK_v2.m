@@ -403,7 +403,7 @@ text(x_top,0.95*N,[' \theta=',num2str(theta_list(ind_theta_display)),'^o']);
 
 ax(3) =  nexttile;
 imagesc(real(kk.gI_cart-ifft2c(ImZ_true))); hold on;
-colormap(ax(3),cmap); clim(ax(3),[-cl_Re_gI cl_Re_gI]); colorbar;
+colormap(ax(3),cmap); clim(ax(3),0.1*[-cl_Re_gI cl_Re_gI]); colorbar;
 title('recovered - truth','FontSize',fs_title);
 xlabel('x');ylabel('y');xticks([]);yticks([]);
 set(ax(3),'FontSize',fs_axis,'LineWidth',1.5);
@@ -445,7 +445,7 @@ text(x_top,0.95*N,[' \theta=',num2str(theta_list(ind_theta_display)),'^o']);
 
 ax(7) =  nexttile;
 imagesc(imag(kk.gI_cart-ifft2c(ImZ_true))); hold on;
-colormap(ax(7),cmap); clim(ax(7),[-cl_Re_gI cl_Re_gI]); colorbar;
+colormap(ax(7),cmap); clim(ax(7),0.1*[-cl_Re_gI cl_Re_gI]); colorbar;
 title('recovered - truth','FontSize',fs_title);
 xlabel('x');ylabel('y');xticks([]);yticks([]);
 set(ax(7),'FontSize',fs_axis,'LineWidth',1.5);

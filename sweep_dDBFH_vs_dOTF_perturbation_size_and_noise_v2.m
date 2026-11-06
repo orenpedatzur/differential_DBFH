@@ -105,7 +105,7 @@ Q = Q_pix_per_lambdaD_eff;
 % Sweep variable: dDBFH cap/string depth in pixels.
 % The dOTF compact blocker is regenerated at each point with the same number
 % of masked pupil pixels as the dDBFH cap/string perturbation.
-string_depth_list_pix = 7; %[1:1:10];
+string_depth_list_pix = 10; %[1:1:10];
 % string_depth_list_pix = [1:2:25];
 
 % Noise levels. Leave scalar for the requested single-noise-level experiment.
@@ -128,12 +128,12 @@ use_true_Z_solver = false;               % true: bypass KK and feed Z_true
 
 % Solver controls copied from the working GPU demo.
 useGPU            = true;
-nsamp             = 30;
+nsamp             = 20;
 blockSize         = 1;
 precond_cap       = 1e2;
 lsqr_tol          = 1e-8;
-lsqr_maxit        = 3e3;
-K_threshold       = 1e-2;
+lsqr_maxit        = 1e5;
+K_threshold       = 1e-3;
 supportScale      = 1;
 crossWeight       = 100;
 
@@ -213,7 +213,7 @@ for iNoise = 1:nNoise
 
     for iSize = 1:nSweep
         string_depth_pix = string_depth_list_pix(iSize);
-
+%%
         % Geometry depends only on perturbation size, not realization.
         geom = make_dbfh_cap_string(seg_id, seg_centers, X, Y, aperture, string_depth_pix, gap_pix);
         supp1_dbfh  = geom.supp1;
@@ -226,8 +226,9 @@ for iNoise = 1:nNoise
         end
 
         supp2_dotf_opt = make_codona_blocker(supp12_dbfh, X, Y, nMask);
-
+%%
         for iReal = 1:nRealizations
+            %%
             row = row + 1;
             trial_seed = base_seed + 100000*iNoise + 1000*iSize + iReal;
 
@@ -322,7 +323,7 @@ for iNoise = 1:nNoise
                 end
                 mag1 = sqrt(max(I_mag_dbfh, 0));
 
-                %% dDBFH solve
+                %% diff-DBFH solve
                 dbfh = run_dDBFH_hard_anchor_solver( ...
                     mag1, Z_solver, supp1_dbfh, supp2_dbfh, E12, useGPU, ...
                     nsamp, blockSize, precond_cap, lsqr_tol, lsqr_maxit, ...

@@ -247,6 +247,8 @@ I12     = I12_clean     + noise_level * noise_scale * randn(size(I12_clean));
 I1_dbfh = I1_dbfh_clean + noise_level * noise_scale * randn(size(I12_clean));
 I1_dotf = I1_dotf_clean + noise_level * noise_scale * randn(size(I12_clean));
 
+est_SNR = psfSNR(I12,99,false,50,10,true)
+
 %% ========================================================================
 %  dDBFH: RECOVER COMPLEX CROSS TERM, THEN SOLVE HARD-ANCHOR SYSTEM
 %  ========================================================================
